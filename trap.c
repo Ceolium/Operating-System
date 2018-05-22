@@ -51,6 +51,7 @@ trap(struct trapframe *tf)
     if(cpuid() == 0){
       acquire(&tickslock);
       ticks++;
+      updatestatistics(); //will update proc statistic every clock tick
       wakeup(&ticks);
       release(&tickslock);
     }
@@ -104,11 +105,14 @@ trap(struct trapframe *tf)
   // If interrupts were on while locks held, would need to check nlock.
   if(myproc() && myproc()->state == RUNNING &&
    tf->trapno == T_IRQ0+IRQ_TIMER){
+
+  #ifdef MLFQ
   // If time quantum is not finished, do not call yield. - project 2   
     if(MLFQ_tick_adder()){
       yield();
     }   
   }
+  #endif
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
     exit();

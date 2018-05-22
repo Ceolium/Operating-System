@@ -102,9 +102,12 @@ extern int sys_sbrk(void);
 extern int sys_sleep(void);
 extern int sys_unlink(void);
 extern int sys_wait(void);
+extern int sys_wait2(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
-extern int sys_myfunction(void);
+extern int sys_getptable(void);
+extern int sys_getppid(void);
+extern int sys_chpr(void);
 extern int sys_yield(void);
 extern int sys_getlev(void);
 extern int sys_set_cpu_share(void);
@@ -132,7 +135,10 @@ static int (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
-[SYS_myfunction] sys_myfunction,
+[SYS_getptable] sys_getptable,
+[SYS_getppid] sys_getppid,
+[SYS_chpr]    sys_chpr,
+[SYS_wait2]    sys_wait2,
 [SYS_yield]   sys_yield,
 [SYS_getlev]  sys_getlev,
 [SYS_set_cpu_share] sys_set_cpu_share,

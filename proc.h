@@ -49,6 +49,12 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int priority;                // Process priority
+  uint ctime;                   // Process creation time
+  int stime;                   //process SLEEPING time
+  int retime;                  //process READY(RUNNABLE) time
+  int rutime;                  //process RUNNING time
+
   uint prior;                  /// MLFQ priority, when prior is 3 it is stride
   uint pticks;                 /// pticks for time allotment
   struct stride* myst; 
@@ -70,6 +76,9 @@ struct FQ {
   struct proc* wait[NPROC];
 };
 
+static void wakeup1(void *chan);
+
+void updatestatistics();
 
 // Process memory is laid out contiguously, low addresses first:
 //   text

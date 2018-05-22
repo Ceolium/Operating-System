@@ -92,6 +92,16 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+
+  #ifdef PRIORITY
+    p->priority = 10;
+  #endif
+
+  p-> ctime = ticks;
+  p-> retime = 0;
+  p->rutime = 0;
+  p->stime = 0;
+
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -115,8 +125,11 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
 
-  push_MLFQ(0, p); // When process created, it pushed into MLFQ - project 2
-  p->myst = s_cand; // so its scheduler is determined by MLFQ, its stride is s_cand[0] - project 2
+  #ifdef MLFQ
+    push_MLFQ(0, p); // When process created, it pushed into MLFQ - project 2
+    p->myst = s_cand; // so its scheduler is determined by MLFQ, its stride is s_cand[0] - project 2
+  #endif
+
   return p;
 }
 
@@ -127,24 +140,29 @@ userinit(void)
 {
   struct proc *p;
   extern char _binary_initcode_start[], _binary_initcode_size[];
-  struct stride* s;
   
-  for(s = s_cand; s < &s_cand[NPROC]; s++){
-    s->valid = 0;
-    s->proc = 0;
-  }
-  s_cand[0].valid = 1;
-  int i, j;
-  for(i = 0; i < 3; i++){
-    MLFQ_table[i].total = 0;
-    MLFQ_table[i].recent = 0;
-    for(j = 0; j < NPROC; j++){
-      MLFQ_table[i].wait[j] = 0;
+  #ifdef MLFQ
+    struct stride* s;
+    
+    for(s = s_cand; s < &s_cand[NPROC]; s++){
+      s->valid = 0;
+      s->proc = 0;
     }
-  }
+    s_cand[0].valid = 1;
+    int i, j;
+    for(i = 0; i < 3; i++){
+      MLFQ_table[i].total = 0;
+      MLFQ_table[i].recent = 0;
+      for(j = 0; j < NPROC; j++){
+        MLFQ_table[i].wait[j] = 0;
+      }
+    }
+    p = allocproc();
+    s_cand[0].proc = p;
+  #endif
 
   p = allocproc();
-  s_cand[0].proc = p;
+
   initproc = p;
   if((p->pgdir = setupkvm()) == 0)
     panic("userinit: out of memory?");
@@ -339,7 +357,151 @@ wait(void)
   }
 }
 
+int wait2(int *retime, int *rutime, int *stime) {
+  struct proc *p;
+  int havekids, pid;
+  acquire(&ptable.lock);
+  for(;;){
+    // Scan through table looking for zombie children.
+    havekids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->parent != myproc())
+        continue;
+      havekids = 1;
+      if(p->state == ZOMBIE){
+        // Found one.
+        *retime = p->retime;
+        *rutime = p->rutime;
+        *stime = p->stime;
+        pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        freevm(p->pgdir);
+        p->state = UNUSED;
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->ctime = 0;
+        p->retime = 0;
+        p->rutime = 0;
+        p->stime = 0;
+        p->priority = 0;
+        release(&ptable.lock);
+        return pid;
+      }
+    }
 
+    // No point waiting if we don't have any children.
+    if(!havekids || myproc()->killed){
+      release(&ptable.lock);
+      return -1;
+    }
+
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(myproc(), &ptable.lock);  //DOC: wait-sleep
+  }
+}
+
+//PAGEBREAK: 42
+// Per-CPU process scheduler.
+// Each CPU calls scheduler() after setting itself up.
+// Scheduler never returns.  It loops, doing:
+//  - choose a process to run
+//  - swtch to start running that process
+//  - eventually that process transfers control
+//      via swtch back to the scheduler.
+void
+scheduler(void)
+{
+  struct proc *p = 0;
+
+  struct cpu *c = mycpu();
+  c->proc = 0;
+
+  for(;;)
+  {
+      // Enable interrupts on this processor.
+      sti();
+
+      // Loop over process table looking for process to run.
+      acquire(&ptable.lock);
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      {
+
+          #ifdef DEFAULT
+              if(p->state != RUNNABLE)
+                continue;
+          #else
+          #ifdef FCFS
+
+            struct proc *minP = 0;
+
+            if(p->state != RUNNABLE)
+              continue;
+
+            // ignore init and sh processes from FCFS
+            if(p->pid > 1)
+            {
+              if (minP != 0){
+                // here I find the process with the lowest creation time (the first one that was created)
+                if(p->ctime < minP->ctime)
+                  minP = p;
+              }
+              else
+                  minP = p;
+            }
+
+            // If I found the process which I created first and it is runnable I run it
+            //(in the real FCFS I should not check if it is runnable, but for testing purposes I have to make this control, otherwise every time I launch
+            // a process which does I/0 operation (every simple command) everything will be blocked
+            if(minP != 0 && minP->state == RUNNABLE)
+                p = minP;
+
+          #else
+          #ifdef PRIORITY
+
+              struct proc *highP = 0;
+              struct proc *p1 = 0;
+
+              if(p->state != RUNNABLE)
+                continue;
+              // Choose the process with highest priority (among RUNNABLEs)
+              highP = p;
+              for(p1 = ptable.proc; p1 < &ptable.proc[NPROC]; p1++){
+                if((p1->state == RUNNABLE) && (highP->priority > p1->priority))
+                  highP = p1;
+              }
+
+              if(highP != 0)
+                p = highP;
+
+          #endif
+          #endif
+          #endif
+
+          if(p != 0)
+          {
+
+            // Switch to chosen process.  It is the process's job
+            // to release ptable.lock and then reacquire it
+            // before jumping back to us.
+            c->proc = p;
+            switchuvm(p);
+            p->state = RUNNING;
+
+            swtch(&(c->scheduler), p->context);
+            switchkvm();
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            c->proc = 0;
+          }
+        }
+
+        release(&ptable.lock);
+  }
+}
 // Enter scheduler.  Must hold only ptable.lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
@@ -366,17 +528,6 @@ sched(void)
   mycpu()->intena = intena;
 }
 
-// Give up the CPU for one scheduling round.
-void
-yield(void)
-{
-  acquire(&ptable.lock);  //DOC: yieldlock
-  myproc()->state = RUNNABLE;
-  
-  sched();
-  release(&ptable.lock);
-}
-
 // A fork child's very first scheduling by scheduler()
 // will swtch here.  "Return" to user space.
 void
@@ -396,6 +547,17 @@ forkret(void)
   }
 
   // Return to "caller", actually trapret (see allocproc).
+}
+
+// Give up the CPU for one scheduling round.
+void
+yield(void)
+{
+  acquire(&ptable.lock);  //DOC: yieldlock
+  myproc()->state = RUNNABLE;
+  
+  sched();
+  release(&ptable.lock);
 }
 
 // Atomically release lock and sleep on chan.
@@ -449,19 +611,21 @@ wakeup1(void *chan)
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->state == SLEEPING && p->chan == chan){
       p->state = RUNNABLE;
-      if(p->prior == 3){
-        uint min = 300000000;
-        struct stride *s;
-        for(s = s_cand; s < &s_cand[NPROC]; s++){
-          if(s->valid == 1){
-            if(min > s->pass)
-              min = s->pass;
+      #ifdef MLFQ
+        if(p->prior == 3){
+          uint min = 300000000;
+          struct stride *s;
+          for(s = s_cand; s < &s_cand[NPROC]; s++){
+            if(s->valid == 1){
+              if(min > s->pass)
+                min = s->pass;
+            }
+          }
+          if(min > p->myst->pass){
+            p->myst->pass = min;
           }
         }
-        if(min > p->myst->pass){
-          p->myst->pass = min;
-        }
-      }
+      #endif
     }
   }
 
@@ -535,4 +699,50 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+struct proc *getptable_proc(void) {
+  return ptable.proc;
+}
+
+// Change Process priority
+int
+chpr(int pid, int priority)
+{
+  struct proc *p;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid) {
+        p->priority = priority;
+        break;
+    }
+  }
+  release(&ptable.lock);
+
+  return pid;
+}
+
+/*
+  This method will run every clock tick and update the statistic fields for each proc
+*/
+void updatestatistics() {
+  struct proc *p;
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    switch(p->state) {
+      case SLEEPING:
+        p->stime++;
+        break;
+      case RUNNABLE:
+        p->retime++;
+        break;
+      case RUNNING:
+        p->rutime++;
+        break;
+      default:
+        ;
+    }
+  }
+  release(&ptable.lock);
 }

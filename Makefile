@@ -27,7 +27,6 @@ OBJS = \
 	uart.o\
 	vectors.o\
 	vm.o\
-    prac_syscall.o\
     sched.o\
 
 # Cross-compiling (e.g., on Mac OS X)
@@ -73,12 +72,16 @@ QEMU = $(shell if which qemu > /dev/null; \
 	echo "***" 1>&2; exit 1)
 endif
 
+ifndef SCHED_POLICY
+SCHED_POLICY := DEFAULT
+endif
+
 CC = $(TOOLPREFIX)gcc
 AS = $(TOOLPREFIX)gas
 LD = $(TOOLPREFIX)ld
 OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
-CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
+CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer -D $(SCHED_POLICY)
 #CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -fvar-tracking -fvar-tracking-assignments -O0 -g -Wall -MD -gdwarf-2 -m32 -Werror -fno-omit-frame-pointer
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
 ASFLAGS = -m32 -gdwarf-2 -Wa,-divide
@@ -177,7 +180,7 @@ UPROGS=\
 	_wc\
 	_zombie\
     _my_userapp\
-    _test\
+    _test_getppid\
     _test_yield\
     _test_mlfq\
     _test_stride\
@@ -221,6 +224,9 @@ CPUS := 2
 endif
 QEMUOPTS = -drive file=fs.img,index=1,media=disk,format=raw -drive file=xv6.img,index=0,media=disk,format=raw -smp $(CPUS) -m 512 $(QEMUEXTRA)
 
+flags:
+	@echo $(SCHED_POLICY)
+	
 qemu: fs.img xv6.img
 	$(QEMU) -serial mon:stdio $(QEMUOPTS)
 
@@ -250,7 +256,7 @@ qemu-nox-gdb: fs.img xv6.img .gdbinit
 EXTRA=\
 	mkfs.c ulib.c user.h cat.c echo.c forktest.c grep.c kill.c\
 	ln.c ls.c mkdir.c rm.c stressfs.c usertests.c wc.c zombie.c\
-	printf.c umalloc.c my_userapp.c test.c test_yield.c\
+	printf.c umalloc.c my_userapp.c test_getppid.c test_yield.c\
 	test_mlfq.c test_stride.c test_master.c\
 	README dot-bochsrc *.pl toc.* runoff runoff1 runoff.list\
 	.gdbinit.tmpl gdbutil\

@@ -19,6 +19,22 @@ main(void)
   dup(0);  // stdout
   dup(0);  // stderr
 
+  #ifdef DEFAULT
+    printf(1, "Scheduler: Round-Robin(default)\n");
+  #else
+  #ifdef FCFS
+    printf(1, "Scheduler: FCFS\n");
+  #else
+  #ifdef PRIORITY
+    printf(1, "Schduler: PRIORITY\n");
+  #else
+  #ifdef MLFQ
+    printf(1, "Scheduler: MLFQ\n");
+  #endif
+  #endif
+  #endif
+  #endif
+    
   for(;;){
     printf(1, "init: starting sh\n");
     pid = fork();
