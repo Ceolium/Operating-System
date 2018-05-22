@@ -14,6 +14,16 @@ sys_fork(void)
 }
 
 int
+sys_yield(void)
+{
+  if(ticks % 2 == 0){
+    MLFQ_tick_adder();
+  } // For prevent gaming the scheduler - project 2
+  yield();
+  return 0;
+}
+
+int
 sys_exit(void)
 {
   exit();
@@ -45,7 +55,22 @@ sys_getpid(void)
 int
 sys_getppid(void)
 {
-	return myproc()->parent->pid;
+    return myproc()->parent->pid;
+}
+
+int
+sys_getlev(void)
+{
+  return myproc()->prior;
+}
+
+int
+sys_set_cpu_share(void)
+{
+  int n;
+  if(argint(0, &n) < 0)
+    return -1;
+  return set_cpu_share(n);
 }
 
 int

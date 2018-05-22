@@ -27,5 +27,3 @@ swtch:
   popl %ebx
   popl %ebp
   ret
-
- 

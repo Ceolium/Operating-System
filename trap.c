@@ -20,10 +20,9 @@ tvinit(void)
   int i;
 
   for(i = 0; i < 256; i++)
-  SETGATE(idt[i], 0, SEG_KCODE<<3, vectors[i], 0);
+    SETGATE(idt[i], 0, SEG_KCODE<<3, vectors[i], 0);
   SETGATE(idt[T_SYSCALL], 1, SEG_KCODE<<3, vectors[T_SYSCALL], DPL_USER);
-  SETGATE(idt[T_USERCALL], 1, SEG_KCODE<<3, vectors[T_USERCALL], DPL_USER);
-  SETGATE(idt[T_YIELDCALL], 1, SEG_KCODE<<3, vectors[T_YIELDCALL], DPL_USER);
+
   initlock(&tickslock, "time");
 }
 
@@ -78,16 +77,6 @@ trap(struct trapframe *tf)
             cpuid(), tf->cs, tf->eip);
     lapiceoi();
     break;
-  //USER SWICH ENTRY POINT
-  case T_USERCALL:
-	 cprintf("user interrupt %d called!\n", tf->trapno);
-	 lapiceoi();
-	 exit();
-
- //USER YIELD CALL
- case T_YIELDCALL:
-	 yield();
-	 break;
 
   //PAGEBREAK: 13
   default:
@@ -114,9 +103,12 @@ trap(struct trapframe *tf)
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
   if(myproc() && myproc()->state == RUNNING &&
-     tf->trapno == T_IRQ0+IRQ_TIMER)
-    yield();
-
+   tf->trapno == T_IRQ0+IRQ_TIMER){
+  // If time quantum is not finished, do not call yield. - project 2   
+    if(MLFQ_tick_adder()){
+      yield();
+    }   
+  }
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
     exit();
